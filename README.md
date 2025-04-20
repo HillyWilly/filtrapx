@@ -40,10 +40,10 @@ Saída gerada em: `out/resultados.txt`
 
 ## Instalação
 
-Instale via `pip` após publicação no PyPI:
+Instale via `git`:
 
 ```bash
-pip install filtrapx
+git clone https://github.com/HillyWilly/filtrapx
 ```
 
 ## Licença
