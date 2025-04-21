@@ -25,7 +25,8 @@ class TextProcessor:
 class DataExtractor:
     PATTERNS = {
         'Nome': re.compile(r'(?:nome|name):\s*(.+?)(?:\n|$)', re.IGNORECASE),
-        'CPF': re.compile(r'(?:cpf|cnpj):\D*(\d{11,14})', re.IGNORECASE),
+        'CPF': re.compile(r'(?:cpf):\D*(\d{11})', re.IGNORECASE),
+        'CNPJ': re.compile(r'(?:cnpj):\D*(\d{14})', re.IGNORECASE),
         'Nascimento': re.compile(r'(?:nascimento|data de nascimento):\s*([\d/-]+)', re.IGNORECASE),
         'Sexo': re.compile(r'(?:sexo|gender):\s*([MF])', re.IGNORECASE)
     }
@@ -42,25 +43,50 @@ class DataExtractor:
 class AgeCalculator:
     @staticmethod
     def calculate_age(birth_date):
-        try:
-            birth = datetime.strptime(re.sub(r'[^0-9]', '', birth_date)[:8], '%d%m%Y')
-            today = datetime.today()
-            return today.year - birth.year - ((today.month, today.day) < (birth.month, birth.day))
-        except:
-            return 'Indefinida'
+        date_str = re.sub(r'[^0-9]', '', birth_date)
+        formats = [
+            ('%d%m%Y', 8),  # DDMMYYYY
+            ('%Y%m%d', 8),  # AAAAMMDD
+            ('%m%Y', 6),    # MMAAAA
+            ('%Y', 4),      # Apenas ano
+        ]
+        
+        for fmt, length in formats:
+            try:
+                date_part = date_str[:length]
+                birth = datetime.strptime(date_part, fmt)
+                today = datetime.today()
+                return today.year - birth.year - ((today.month, today.day) < (birth.month, birth.day))
+            except:
+                continue
+        return 'Indefinida'
 
 class FileHandler:
     FORMATS = [
-        {'detector': lambda t: 'BY: @AnoninoBuscasOfcBot' in t,
-         'processor': lambda t: [DataExtractor.extract_from_block(b) for b in TextProcessor.clean_text(t).split('\n\n')]},
-        
-        {'detector': lambda t: re.search(r'•\s*RESULTADO\s*:', t),
-         'processor': lambda t: [DataExtractor.extract_from_block(b) 
-                                for b in re.split(r'•\s*RESULTADO\s*:\s*\d+', t) if 'NOME' in b]},
-        
-        {'detector': lambda _: True,
-         'processor': lambda t: [DataExtractor.extract_from_block(f'Nome: {b}') 
-                                for b in re.split(r'(?:^|\n)[👤•]*\s*Nome[:\s]', t)[1:]]}
+        {   # Formato AnoninoBuscasOfcBot
+            'detector': lambda t: 'BY: @AnoninoBuscasOfcBot' in t,
+            'processor': lambda t: [
+                DataExtractor.extract_from_block(b) 
+                for b in TextProcessor.correct_text(
+                    TextProcessor.clean_text(t)
+                ).split('\n\n')
+            ]
+        },
+        {   # Formato com marcadores • RESULTADO
+            'detector': lambda t: re.search(r'•\s*RESULTADO\s*:', t),
+            'processor': lambda t: [
+                DataExtractor.extract_from_block(b) 
+                for b in re.split(r'•\s*RESULTADO\s*:\s*\d+', t) 
+                if 'NOME' in b
+            ]
+        },
+        {   # Formato genérico
+            'detector': lambda _: True,
+            'processor': lambda t: [
+                DataExtractor.extract_from_block(f'Nome: {b}') 
+                for b in re.split(r'(?:\n|^)[👤•]*\s*Nome:\s*', t, flags=re.IGNORECASE)[1:]
+            ]
+        }
     ]
 
     @classmethod
@@ -88,7 +114,7 @@ class FileHandler:
     def process_file(cls, content):
         for fmt in cls.FORMATS:
             if fmt['detector'](content):
-                return fmt['processor'](TextProcessor.correct_text(content))
+                return fmt['processor'](content)
         return []
 
     @staticmethod
@@ -99,7 +125,7 @@ class FileHandler:
         for r in records:
             output.append(
                 f"Nome: {r['Nome']}\n"
-                f"CPF: {r['CPF']}\n"
+                f"CPF/CNPJ: {r['CPF'] or r['CNPJ']}\n"
                 f"Nascimento: {r['Nascimento']}\n"
                 f"Sexo: {r['Sexo']}\n"
                 f"Idade: {r.get('Idade', 'Indefinida')}\n"
@@ -111,7 +137,7 @@ class FileHandler:
             
         if print_flag:
             print(''.join(output))
-            print(f"\n{len(output)} resultado(s) encontrados.")
+            print(f"\n{len(records)} resultado(s) encontrados.")
 
 class FilterSystem:
     @staticmethod
@@ -143,8 +169,12 @@ class FilterSystem:
 
     @staticmethod
     def _check_age(age, min_a, max_a):
-        try: return min_a <= int(age) <= max_a
-        except: return False
+        if age == 'Indefinida':
+            return min_a == 0 and max_a == 150
+        try: 
+            return min_a <= int(age) <= max_a
+        except: 
+            return False
 
 def main():
     parser = argparse.ArgumentParser(description="Processa e filtra dados de texto.")
