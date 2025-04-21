@@ -6,7 +6,6 @@ from datetime import datetime
 from ftfy import fix_text
 from spellchecker import SpellChecker
 
-# --- Preparação ---
 spell = SpellChecker(language='pt')
 
 def limpar_texto_anonimo(texto):
@@ -76,20 +75,25 @@ def extrair_blocos_por_nome(texto):
     blocos = re.split(r'(?:^|\n) *[👤•]*\s*Nome[:\s]', texto, flags=re.IGNORECASE)
     return ["Nome: " + b.strip() for b in blocos[1:]]
 
+
 def limpar_texto_focus(texto):
     return texto.encode('ascii', 'ignore').decode('ascii')
 
+
 def extrair_campos_focus(bloco):
     bloco = limpar_texto_focus(bloco.upper())
+
     def buscar(regex):
         m = re.search(regex, bloco)
         return m.group(1).strip() if m else "None"
+
     return {
         'Nome': buscar(r'NOME[:\s]+([A-Z\s]+?)(?:\n|$)'),
         'CPF': buscar(r'CPF[:\s]+(\d{11})'),
         'Nascimento': buscar(r'(?:DATA DE NASCIMENTO|NASCIMENTO)[:\s]+([\d/-]+)'),
         'Sexo': buscar(r'SEXO[:\s]+([A-Z]+)'),
     }
+
 
 def calcular_idade_str(data_str):
     try:
@@ -118,6 +122,7 @@ def gerar_texto_formatado(registros):
         )
         linhas_formatadas.append(bloco)
     return linhas_formatadas
+
 
 def aplicar_filtros(linhas, nome_filtro, sexo_filtro, idade_min, idade_max, modo):
     filtradas = []
@@ -152,6 +157,7 @@ def aplicar_filtros(linhas, nome_filtro, sexo_filtro, idade_min, idade_max, modo
             filtradas.append(linha)
 
     return filtradas
+
 # --- Execução Principal ---
 def main():
     parser = argparse.ArgumentParser(description="Processa e filtra dados de texto.")
@@ -186,40 +192,30 @@ def main():
         else:
             blocos = extrair_blocos_por_nome(conteudo)
             registros = [extrair_campos_focus(bloco) for bloco in blocos]
-    
+
         registros_totais.extend(registros)
-    
+
     linhas_formatadas = gerar_texto_formatado(registros_totais)
     filtradas = aplicar_filtros(
-    linhas_formatadas,
-    args.nome.upper(),
-    args.sexo.upper(),
-    args.idade_min,
-    args.idade_max,
-    args.modo
-)
+        linhas_formatadas,
+        args.nome.upper(),
+        args.sexo.upper(),
+        args.idade_min,
+        args.idade_max,
+        args.modo
+    )
 
-# Salva no arquivo
-os.makedirs("out", exist_ok=True)
-with open("out/resultados.txt", 'w', encoding='utf-8') as f:
-    f.writelines(l + "\n" for l in filtradas)
+    # Salva no arquivo
+    os.makedirs("out", exist_ok=True)
+    with open("out/resultados.txt", 'w', encoding='utf-8') as f:
+        f.writelines(l + "\n" for l in filtradas)
 
-# Imprime no terminal se solicitado
-if args.print:
-    for linha in filtradas:
-        print(linha)
-
-print(f"{len(filtradas)} resultado(s) salvos em 'out/resultados.txt'.")
-
-
-    # Aqui vem a parte da alteração para imprimir no terminal ou salvar:
+    # Imprime no terminal se solicitado
     if args.print:
-        # Imprime no terminal
         for linha in filtradas:
             print(linha)
-    else:
-        # Não imprime no terminal, apenas salva
-        print(f"{len(filtradas)} resultado(s) salvos em 'out/resultados.txt'.")
+
+    print(f"{len(filtradas)} resultado(s) salvos em 'out/resultados.txt'.")
 
 if __name__ == "__main__":
     main()
