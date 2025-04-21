@@ -173,30 +173,29 @@ def main():
 
     arquivos = []
 
-if args.entrada.lower() == "-termux":
-    telegram_dir = "/downloads"
-    if os.path.exists(telegram_dir):
-        txt_files = [
-            os.path.join(telegram_dir, f)
-            for f in os.listdir(telegram_dir)
-            if f.endswith(".txt")
-        ]
-        if not txt_files:
-            print("Nenhum arquivo .txt encontrado em /storage/downloads/Telegram.")
+    if args.entrada.lower() == "-termux":
+        telegram_dir = "../storage/downloads/Telegram"
+        if os.path.exists(telegram_dir):
+            txt_files = [
+                os.path.join(telegram_dir, f)
+                for f in os.listdir(telegram_dir)
+                if f.endswith(".txt")
+            ]
+            if not txt_files:
+                print("Nenhum arquivo .txt encontrado em ../storage/downloads/Telegram/.")
+                return
+            # Ordena por data de modificação (mais recente primeiro)
+            txt_files.sort(key=os.path.getmtime, reverse=True)
+            arquivos = [txt_files[0]]  # Pega o mais recente
+            print(f"Arquivo mais recente encontrado: {arquivos[0]}")
+        else:
+            print("Diretório ../storage/downloads/Telegram não encontrado.")
             return
-        # Ordena por data de modificação (mais recente primeiro)
-        txt_files.sort(key=os.path.getmtime, reverse=True)
-        arquivos = [txt_files[0]]  # Pega o mais recente
-        print(f"Arquivo mais recente encontrado: {arquivos[0]}")
+    elif os.path.isdir(args.entrada):
+        arquivos = [os.path.join(args.entrada, f) for f in os.listdir(args.entrada) if f.endswith(".txt")]
     else:
-        print("Diretório /downloads não encontrado.")
-        return
-elif os.path.isdir(args.entrada):
-    arquivos = [os.path.join(args.entrada, f) for f in os.listdir(args.entrada) if f.endswith(".txt")]
-else:
-    arquivos = [args.entrada]
-]
-
+        arquivos = [args.entrada]
+    
     registros_totais = []
 
     for caminho in arquivos:
