@@ -161,20 +161,21 @@ def aplicar_filtros(linhas, nome_filtro, sexo_filtro, idade_min, idade_max, modo
 # --- Execução Principal ---
 def main():
     parser = argparse.ArgumentParser(description="Processa e filtra dados de texto.")
-    parser.add_argument("entrada", help="Arquivo de entrada ou pasta")
+    parser.add_argument("entrada", nargs="?", help="Arquivo de entrada ou pasta")
+    parser.add_argument("-t", "--termux", action="store_true", help="Usar o arquivo mais recente do Telegram (modo Termux)")
     parser.add_argument("-n", "--nome", help="Filtrar por nome", default="")
     parser.add_argument("-m", "--modo", choices=["exato", "contem", "comeca"], default="exato", help="Modo de comparação do nome")
     parser.add_argument("-s", "--sexo", help="Filtrar por sexo (M/F)", default="")
     parser.add_argument("-imn", "--idade_min", type=int, help="Idade mínima", default=0)
     parser.add_argument("-imx", "--idade_max", type=int, help="Idade máxima", default=150)
     parser.add_argument("-p", "--print", help="Imprimir no terminal", action="store_true")
-
+    
     args = parser.parse_args()
-
+    
     arquivos = []
-
-    if args.entrada.lower() == "-termux":
-        telegram_dir = "../storage/downloads/Telegram"
+        
+        if args.termux:
+            telegram_dir = "../storage/downloads/Telegram"
         if os.path.exists(telegram_dir):
             txt_files = [
                 os.path.join(telegram_dir, f)
@@ -184,17 +185,23 @@ def main():
             if not txt_files:
                 print("Nenhum arquivo .txt encontrado em ../storage/downloads/Telegram/.")
                 return
-            # Ordena por data de modificação (mais recente primeiro)
             txt_files.sort(key=os.path.getmtime, reverse=True)
-            arquivos = [txt_files[0]]  # Pega o mais recente
+            arquivos = [txt_files[0]]
             print(f"Arquivo mais recente encontrado: {arquivos[0]}")
         else:
             print("Diretório ../storage/downloads/Telegram não encontrado.")
             return
-    elif os.path.isdir(args.entrada):
-        arquivos = [os.path.join(args.entrada, f) for f in os.listdir(args.entrada) if f.endswith(".txt")]
+    elif args.entrada:
+        if os.path.isdir(args.entrada):
+            arquivos = [
+                os.path.join(args.entrada, f)
+                for f in os.listdir(args.entrada)
+                if f.endswith(".txt")
+            ]
+        else:
+            arquivos = [args.entrada]
     else:
-        arquivos = [args.entrada]
+        parser.error("Você deve informar um caminho de entrada ou usar a flag (-t, --termux).")
     
     registros_totais = []
 
