@@ -119,28 +119,45 @@ def gerar_texto_formatado(registros):
         linhas_formatadas.append(bloco)
     return linhas_formatadas
 
-def aplicar_filtros(linhas, nome_filtro, sexo_filtro, idade_min, idade_max):
+def aplicar_filtros(linhas, nome_filtro, sexo_filtro, idade_min, idade_max, modo):
     filtradas = []
     for linha in linhas:
         nome, cpf, nascimento, sexo, idade = linha.split('\n')[:5]
-        nome = nome.split(': ')[1]
-        idade = int(idade.split(': ')[1].strip()) if idade else None
-        if nome_filtro and nome_filtro not in nome:
-            continue
-        if sexo_filtro and sexo_filtro not in sexo:
-            continue
-        if idade_min and idade and idade < idade_min:
-            continue
-        if idade_max and idade and idade > idade_max:
-            continue
-        filtradas.append(linha)
-    return filtradas
+        nome_valor = nome.split(': ')[1]
+        sexo_valor = sexo.split(': ')[1]
+        idade_valor = idade.split(': ')[1].strip()
 
+        # Nome matching
+        nome_valido = True
+        if nome_filtro:
+            if modo == "exato":
+                nome_valido = nome_filtro == nome_valor
+            elif modo == "contem":
+                nome_valido = nome_filtro in nome_valor
+            elif modo == "comeca":
+                nome_valido = nome_valor.startswith(nome_filtro)
+
+        # Sexo matching
+        sexo_valido = not sexo_filtro or sexo_filtro == sexo_valor
+
+        # Idade
+        idade_valido = True
+        if idade_valor.isdigit():
+            idade_valor = int(idade_valor)
+            idade_valido = idade_min <= idade_valor <= idade_max
+        else:
+            idade_valido = False
+
+        if nome_valido and sexo_valido and idade_valido:
+            filtradas.append(linha)
+
+    return filtradas
 # --- Execução Principal ---
 def main():
     parser = argparse.ArgumentParser(description="Processa e filtra dados de texto.")
-    parser.add_argument("arquivo", help="Nome do arquivo de entrada")
+    parser.add_argument("entrada", help="Arquivo de entrada ou pasta")
     parser.add_argument("-n", "--nome", help="Filtrar por nome", default="")
+    parser.add_argument("-m", "--modo", choices=["exato", "contem", "comeca"], default="exato", help="Modo de comparação do nome")
     parser.add_argument("-s", "--sexo", help="Filtrar por sexo (M/F)", default="")
     parser.add_argument("-imn", "--idade_min", type=int, help="Idade mínima", default=0)
     parser.add_argument("-imx", "--idade_max", type=int, help="Idade máxima", default=150)
@@ -148,27 +165,52 @@ def main():
 
     args = parser.parse_args()
 
-    with open(args.arquivo, 'r', encoding='utf-8', errors='ignore') as f:
-        conteudo = f.read()
-
-    if 'BY: @AnoninoBuscasOfcBot' in conteudo:
-        texto = limpar_texto_anonimo(conteudo)
-        texto = corrigir_texto(texto)
-        registros = extrair_registros_anonimo(texto)
-    elif detectar_formato_resultado(conteudo):
-        registros = extrair_resultados_com_ponto(conteudo)
+    arquivos = []
+    if os.path.isdir(args.entrada):
+        arquivos = [os.path.join(args.entrada, f) for f in os.listdir(args.entrada) if f.endswith(".txt")]
     else:
-        blocos = extrair_blocos_por_nome(conteudo)
-        registros = [extrair_campos_focus(bloco) for bloco in blocos]
+        arquivos = [args.entrada]
 
-    linhas_formatadas = gerar_texto_formatado(registros)
-    filtradas = aplicar_filtros(linhas_formatadas, args.nome.upper(), args.sexo.upper(), args.idade_min, args.idade_max)
+    registros_totais = []
 
-    os.makedirs("out", exist_ok=True)
-    with open("out/resultados.txt", 'w', encoding='utf-8') as f:
-        f.writelines(l + "\n" for l in filtradas)
+    for caminho in arquivos:
+        with open(caminho, 'r', encoding='utf-8', errors='ignore') as f:
+            conteudo = f.read()
 
-    print(f"{len(filtradas)} resultado(s) salvos em 'out/resultados.txt'.")
+        if 'BY: @AnoninoBuscasOfcBot' in conteudo:
+            texto = limpar_texto_anonimo(conteudo)
+            texto = corrigir_texto(texto)
+            registros = extrair_registros_anonimo(texto)
+        elif detectar_formato_resultado(conteudo):
+            registros = extrair_resultados_com_ponto(conteudo)
+        else:
+            blocos = extrair_blocos_por_nome(conteudo)
+            registros = [extrair_campos_focus(bloco) for bloco in blocos]
+    
+        registros_totais.extend(registros)
+    
+    linhas_formatadas = gerar_texto_formatado(registros_totais)
+    filtradas = aplicar_filtros(
+    linhas_formatadas,
+    args.nome.upper(),
+    args.sexo.upper(),
+    args.idade_min,
+    args.idade_max,
+    args.modo
+)
+
+# Salva no arquivo
+os.makedirs("out", exist_ok=True)
+with open("out/resultados.txt", 'w', encoding='utf-8') as f:
+    f.writelines(l + "\n" for l in filtradas)
+
+# Imprime no terminal se solicitado
+if args.print:
+    for linha in filtradas:
+        print(linha)
+
+print(f"{len(filtradas)} resultado(s) salvos em 'out/resultados.txt'.")
+
 
     # Aqui vem a parte da alteração para imprimir no terminal ou salvar:
     if args.print:
