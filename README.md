@@ -82,7 +82,7 @@ python3 filtrapx.py --termux
 Clone o repositório:
 
 ```bash
-git clone https://github.com/HillyWilly/filtrapx
+git clone https://github.com/c0rr0syv3/filtrapx
 cd filtrapx
 ```
 
