@@ -174,7 +174,7 @@ def main():
     arquivos = []
 
 if args.entrada.lower() == "-termux":
-    telegram_dir = "/storage/downloads/Telegram"
+    telegram_dir = "/downloads"
     if os.path.exists(telegram_dir):
         txt_files = [
             os.path.join(telegram_dir, f)
@@ -189,7 +189,7 @@ if args.entrada.lower() == "-termux":
         arquivos = [txt_files[0]]  # Pega o mais recente
         print(f"Arquivo mais recente encontrado: {arquivos[0]}")
     else:
-        print("Diretório /storage/downloads/Telegram não encontrado.")
+        print("Diretório /downloads não encontrado.")
         return
 elif os.path.isdir(args.entrada):
     arquivos = [os.path.join(args.entrada, f) for f in os.listdir(args.entrada) if f.endswith(".txt")]
