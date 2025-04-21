@@ -1,254 +1,133 @@
 import os
 import re
 import argparse
-from unidecode import unidecode
 from datetime import datetime
+from unidecode import unidecode
 from ftfy import fix_text
 from spellchecker import SpellChecker
 
 spell = SpellChecker(language='pt')
 
+class TextProcessor:
+    @staticmethod
+    def clean_text(text, invalid_phrases=None):
+        text = fix_text(text.encode('latin1', errors='ignore').decode('utf-8', errors='ignore'))
+        text = re.sub(r'/CNPJ|[^\x00-\x7F]', '', text)
+        phrases = {'sem informacao', 'sem informação', 'nenhum', 'zero'}
+        if invalid_phrases: phrases.update(invalid_phrases)
+        return '\n'.join(line.strip() for line in text.splitlines() 
+                        if line.strip() and not any(p in line.lower() for p in phrases))
 
-def limpar_texto_anonimo(texto):
-    texto = texto.encode('latin1', errors='ignore').decode('utf-8', errors='ignore')
-    texto = texto.replace('/CNPJ', '')
-    texto = ''.join(c for c in texto if c.isascii())
-    palavras_invalidas = {'sem informacao', 'sem informação', 'nenhum', 'zero'}
-    return '\n'.join(
-        linha.strip() for linha in texto.splitlines()
-        if linha.strip() and not any(p in linha.strip().lower() for p in palavras_invalidas)
-    )
+    @staticmethod
+    def correct_text(text):
+        return ' '.join([spell.correction(w.lower()) or w for w in unidecode(fix_text(text)).split()]).upper()
 
-
-def corrigir_texto(texto):
-    texto = fix_text(texto)
-    texto = unidecode(texto)
-    palavras = texto.split()
-    palavras_corrigidas = [
-        spell.correction(p.lower()) if spell.correction(p.lower()) else p
-        for p in palavras
-    ]
-    return ' '.join(palavras_corrigidas).upper()
-
-
-def extrair_registros_anonimo(texto):
-    registros = []
-    linhas = texto.splitlines()
-    registro = {}
-    for linha in linhas:
-        if 'nome:' in linha.lower():
-            if registro:
-                registros.append(registro)
-                registro = {}
-            registro['Nome'] = linha.split(':', 1)[-1].strip().upper()
-        elif re.search(r'(cpf|cnpj)', linha, re.IGNORECASE):
-            cpf_linha = re.sub(r'\D', '', linha.split(':', 1)[-1])
-            if 11 <= len(cpf_linha) <= 14:
-                registro['CPF'] = cpf_linha
-        elif 'nascimento:' in linha.lower():
-            registro['Nascimento'] = linha.split(':', 1)[-1].strip()
-        elif 'sexo:' in linha.lower():
-            registro['Sexo'] = linha.split(':', 1)[-1].strip().upper()
-    if registro:
-        registros.append(registro)
-    return registros
-
-
-def detectar_formato_resultado(texto):
-    return bool(re.search(r'•\s*RESULTADO\s*:', texto, flags=re.IGNORECASE))
-
-
-def extrair_resultados_com_ponto(texto):
-    blocos = re.split(r'•\s*RESULTADO\s*:\s*\d+', texto, flags=re.IGNORECASE)
-    registros = []
-    for bloco in blocos:
-        if 'NOME' not in bloco.upper():
-            continue
-        nome = re.search(r'NOME:\s*(.+)', bloco, flags=re.IGNORECASE)
-        cpf = re.search(r'CPF:\s*(\d+)', bloco, flags=re.IGNORECASE)
-        nasc = re.search(r'NASCIMENTO:\s*([\d/-]+)', bloco, flags=re.IGNORECASE)
-        sexo = re.search(r'SEXO:\s*([MF])', bloco, flags=re.IGNORECASE)
-        registros.append({
-            'Nome': nome.group(1).strip().upper() if nome else 'None',
-            'CPF': cpf.group(1).strip() if cpf else 'None',
-            'Nascimento': nasc.group(1).strip() if nasc else 'None',
-            'Sexo': sexo.group(1).strip().upper() if sexo else 'None',
-        })
-    return registros
-
-
-def extrair_blocos_por_nome(texto):
-    blocos = re.split(r'(?:^|\n) *[👤•]*\s*Nome[:\s]', texto, flags=re.IGNORECASE)
-    return ["Nome: " + b.strip() for b in blocos[1:]]
-
-
-def limpar_texto_focus(texto):
-    return texto.encode('ascii', 'ignore').decode('ascii')
-
-
-def extrair_campos_focus(bloco):
-    bloco = limpar_texto_focus(bloco.upper())
-
-    def buscar(regex):
-        m = re.search(regex, bloco)
-        return m.group(1).strip() if m else "None"
-
-    return {
-        'Nome': buscar(r'NOME[:\s]+([A-Z\s]+?)(?:\n|$)'),
-        'CPF': buscar(r'CPF[:\s]+(\d{11})'),
-        'Nascimento': buscar(r'(?:DATA DE NASCIMENTO|NASCIMENTO)[:\s]+([\d/-]+)'),
-        'Sexo': buscar(r'SEXO[:\s]+([A-Z]+)'),
+class DataExtractor:
+    PATTERNS = {
+        'name': re.compile(r'(?:nome|name):\s*(.+?)(?:\n|$)', re.IGNORECASE),
+        'cpf': re.compile(r'(?:cpf|cnpj):\D*(\d{11,14})', re.IGNORECASE),
+        'birth': re.compile(r'(?:nascimento|data de nascimento):\s*([\d/-]+)', re.IGNORECASE),
+        'gender': re.compile(r'(?:sexo|gender):\s*([MF])', re.IGNORECASE)
     }
 
+    @classmethod
+    def extract_from_block(cls, block):
+        return {key: cls._extract_field(block, pattern) for key, pattern in cls.PATTERNS.items()}
 
-def calcular_idade_str(data_str):
-    formatos = ["%d/%m/%Y", "%Y-%m-%d", "%Y/%m/%d"]
-    for fmt in formatos:
+    @staticmethod
+    def _extract_field(text, pattern):
+        match = pattern.search(text.upper())
+        return match.group(1).strip() if match else 'None'
+
+class AgeCalculator:
+    @staticmethod
+    def calculate_age(birth_date):
         try:
-            nascimento = datetime.strptime(data_str, fmt)
-            hoje = datetime.today()
-            idade = hoje.year - nascimento.year - ((hoje.month, hoje.day) < (nascimento.month, nascimento.day))
-            return idade
+            birth = datetime.strptime(re.sub(r'[^0-9]', '', birth_date)[:8], '%d%m%Y')
+            today = datetime.today()
+            return today.year - birth.year - ((today.month, today.day) < (birth.month, birth.day))
         except:
-            continue
-    return "Indefinida"
+            return 'Indefinida'
 
+class FileHandler:
+    FORMATS = [
+        {'detector': lambda t: 'BY: @AnoninoBuscasOfcBot' in t,
+         'processor': lambda t: [DataExtractor.extract_from_block(b) for b in TextProcessor.clean_text(t).split('\n\n')]},
+        
+        {'detector': lambda t: re.search(r'•\s*RESULTADO\s*:', t),
+         'processor': lambda t: [DataExtractor.extract_from_block(b) 
+                                for b in re.split(r'•\s*RESULTADO\s*:\s*\d+', t) if 'NOME' in b]},
+        
+        {'detector': lambda _: True,
+         'processor': lambda t: [DataExtractor.extract_from_block(f'Nome: {b}') 
+                                for b in re.split(r'(?:^|\n)[👤•]*\s*Nome[:\s]', t)[1:]]}
+    ]
 
-def gerar_texto_formatado(registros):
-    linhas_formatadas = []
-    for r in registros:
-        nome = r.get('Nome', 'None').replace("'", "''")
-        cpf = r.get('CPF', 'None')
-        nascimento = r.get('Nascimento', 'None')
-        sexo = r.get('Sexo', 'None')
-        idade = calcular_idade_str(nascimento)
-        bloco = (
-            f"Nome: {nome}\n"
-            f"CPF: {cpf}\n"
-            f"Nascimento: {nascimento}\n"
-            f"Sexo: {sexo}\n"
-            f"Idade: {idade}\n"
-            f"-----------------------\n"
-        )
-        linhas_formatadas.append(bloco)
-    return linhas_formatadas
+    @classmethod
+    def process_file(cls, content):
+        for fmt in cls.FORMATS:
+            if fmt['detector'](content):
+                return fmt['processor'](TextProcessor.correct_text(content))
+        return []
 
+class FilterSystem:
+    @staticmethod
+    def apply_filters(records, filters):
+        return [r for r in records if all([
+            FilterSystem._check_name(r['name'], filters.get('name'), filters.get('mode')),
+            FilterSystem._check_gender(r['gender'], filters.get('gender')),
+            FilterSystem._check_age(r.get('age', 0), filters.get('min_age'), filters.get('max_age'))
+        ])]
 
-def aplicar_filtros(linhas, nome_filtro, sexo_filtro, idade_min, idade_max, modo):
-    filtradas = []
-    for linha in linhas:
-        nome, cpf, nascimento, sexo, idade = linha.split('\n')[:5]
-        nome_valor = nome.split(': ')[1]
-        sexo_valor = sexo.split(': ')[1]
-        idade_valor = idade.split(': ')[1].strip()
+    @staticmethod
+    def _check_name(name, query, mode):
+        if not query: return True
+        name, query = name.upper(), query.upper()
+        return {
+            'exato': name == query,
+            'contem': query in name,
+            'comeca': name.startswith(query)
+        }.get(mode, True)
 
-        nome_valido = True
-        if nome_filtro:
-            if modo == "exato":
-                nome_valido = nome_filtro == nome_valor
-            elif modo == "contem":
-                nome_valido = nome_filtro in nome_valor
-            elif modo == "comeca":
-                nome_valido = nome_valor.startswith(nome_filtro)
+    @staticmethod
+    def _check_gender(gender, target):
+        return not target or gender.upper() == target.upper()
 
-        sexo_valido = not sexo_filtro or sexo_filtro == sexo_valor
+    @staticmethod
+    def _check_age(age, min_a, max_a):
+        return isinstance(age, int) and min_a <= age <= max_a
 
-        idade_valido = True
-        if idade_valor.isdigit():
-            idade_valor = int(idade_valor)
-            idade_valido = idade_min <= idade_valor <= idade_max
-        else:
-            idade_valido = False
-
-        if nome_valido and sexo_valido and idade_valido:
-            filtradas.append(linha)
-
-    return filtradas
-
-
-# --- Execução Principal ---
 def main():
     parser = argparse.ArgumentParser(description="Processa e filtra dados de texto.")
-    parser.add_argument("entrada", nargs="?", help="Arquivo de entrada ou pasta")
-    parser.add_argument("-t", "--termux", action="store_true", help="Usar o arquivo mais recente do Telegram (modo Termux)")
-    parser.add_argument("-n", "--nome", help="Filtrar por nome", default="")
-    parser.add_argument("-m", "--modo", choices=["exato", "contem", "comeca"], default="exato", help="Modo de comparação do nome")
-    parser.add_argument("-s", "--sexo", help="Filtrar por sexo (M/F)", default="")
-    parser.add_argument("-imn", "--idade_min", type=int, help="Idade mínima", default=0)
-    parser.add_argument("-imx", "--idade_max", type=int, help="Idade máxima", default=150)
-    parser.add_argument("-p", "--print", help="Imprimir no terminal", action="store_true")
+    parser.add_argument("input", nargs="?", help="Arquivo ou pasta de entrada")
+    parser.add_argument("-t", "--termux", action="store_true", help="Usar último arquivo do Telegram")
+    parser.add_argument("-n", "--name", help="Filtrar por nome", default="")
+    parser.add_argument("-m", "--mode", choices=["exato", "contem", "comeca"], default="exato")
+    parser.add_argument("-s", "--gender", help="Filtrar por sexo (M/F)", default="")
+    parser.add_argument("-imn", "--min_age", type=int, default=0)
+    parser.add_argument("-imx", "--max_age", type=int, default=150)
+    parser.add_argument("-p", "--print", action="store_true", help="Mostrar resultados no terminal")
 
     args = parser.parse_args()
+    files = FileHandler.get_files(args)
 
-    arquivos = []
+    all_records = []
+    for file in files:
+        with open(file, 'r', encoding='utf-8', errors='ignore') as f:
+            all_records.extend(FileHandler.process_file(f.read()))
 
-    if args.termux:
-        telegram_dir = "../storage/downloads/Telegram"
-        if os.path.exists(telegram_dir):
-            txt_files = [
-                os.path.join(telegram_dir, f)
-                for f in os.listdir(telegram_dir)
-                if f.endswith(".txt")
-            ]
-            if not txt_files:
-                print("Nenhum arquivo .txt encontrado em ../storage/downloads/Telegram/.")
-                return
-            txt_files.sort(key=os.path.getmtime, reverse=True)
-            arquivos = [txt_files[0]]
-            print(f"Arquivo mais recente encontrado: {arquivos[0]}")
-        else:
-            print("Diretório ../storage/downloads/Telegram não encontrado.")
-            return
-    elif args.entrada:
-        if os.path.isdir(args.entrada):
-            arquivos = [
-                os.path.join(args.entrada, f)
-                for f in os.listdir(args.entrada)
-                if f.endswith(".txt")
-            ]
-        else:
-            arquivos = [args.entrada]
-    else:
-        parser.error("Você deve informar um caminho de entrada ou usar a flag (-t, --termux).")
+    for record in all_records:
+        record['age'] = AgeCalculator.calculate_age(record['birth'])
 
-    registros_totais = []
+    filtered = FilterSystem.apply_filters(all_records, {
+        'name': args.name,
+        'gender': args.gender,
+        'min_age': args.min_age,
+        'max_age': args.max_age,
+        'mode': args.mode
+    })
 
-    for caminho in arquivos:
-        with open(caminho, 'r', encoding='utf-8', errors='ignore') as f:
-            conteudo = f.read()
-
-        if 'BY: @AnoninoBuscasOfcBot' in conteudo:
-            texto = limpar_texto_anonimo(conteudo)
-            texto = corrigir_texto(texto)
-            registros = extrair_registros_anonimo(texto)
-        elif detectar_formato_resultado(conteudo):
-            registros = extrair_resultados_com_ponto(conteudo)
-        else:
-            blocos = extrair_blocos_por_nome(conteudo)
-            registros = [extrair_campos_focus(bloco) for bloco in blocos]
-
-        registros_totais.extend(registros)
-
-    linhas_formatadas = gerar_texto_formatado(registros_totais)
-    filtradas = aplicar_filtros(
-        linhas_formatadas,
-        args.nome.upper(),
-        args.sexo.upper(),
-        args.idade_min,
-        args.idade_max,
-        args.modo
-    )
-
-    os.makedirs("out", exist_ok=True)
-    with open("out/resultados.txt", 'w', encoding='utf-8') as f:
-        f.writelines(l + "\n" for l in filtradas)
-
-    if args.print:
-        for linha in filtradas:
-            print(linha)
-
-    print(f"{len(filtradas)} resultado(s) salvos em 'out/resultados.txt'.")
-
+    FileHandler.save_results(filtered, args.print)
 
 if __name__ == "__main__":
     main()
