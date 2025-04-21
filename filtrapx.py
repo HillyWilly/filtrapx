@@ -91,61 +91,47 @@ def extrair_campos_focus(bloco):
         'Sexo': buscar(r'SEXO[:\s]+([A-Z]+)'),
     }
 
-def gerar_sql_insert(registros):
-    linhas_sql = []
+def calcular_idade_str(data_str):
+    try:
+        nascimento = datetime.strptime(data_str, "%d/%m/%Y") if "/" in data_str else datetime.strptime(data_str, "%Y-%m-%d")
+        hoje = datetime.today()
+        idade = hoje.year - nascimento.year - ((hoje.month, hoje.day) < (nascimento.month, nascimento.day))
+        return idade
+    except:
+        return "Indefinida"
+
+def gerar_texto_formatado(registros):
+    linhas_formatadas = []
     for r in registros:
         nome = r.get('Nome', 'None').replace("'", "''")
         cpf = r.get('CPF', 'None')
         nascimento = r.get('Nascimento', 'None')
         sexo = r.get('Sexo', 'None')
-        idade = "NULL"
-        linha = (
-            f"INSERT INTO pessoas (nome, cpf, nascimento, sexo, idade) "
-            f"VALUES ('{nome}', '{cpf}', '{nascimento}', '{sexo}', {idade});"
+        idade = calcular_idade_str(nascimento)
+        bloco = (
+            f"Nome: {nome}\n"
+            f"CPF: {cpf}\n"
+            f"Nascimento: {nascimento}\n"
+            f"Sexo: {sexo}\n"
+            f"Idade: {idade}\n"
+            f"-----------------------\n"
         )
-        linhas_sql.append(linha)
-    return '\n'.join(linhas_sql)
-
-def aplicar_formatacao_data_idade(linhas):
-    padrao_data = re.compile(r"'(\d{4}-\d{2}-\d{2}(?: \d{2}:\d{2}:\d{2})?|\d{2}/\d{2}/\d{4})'")
-    def calcular_idade(nascimento):
-        hoje = datetime.today()
-        return hoje.year - nascimento.year - ((hoje.month, hoje.day) < (nascimento.month, nascimento.day))
-    
-    atualizadas = []
-    for linha in linhas:
-        datas = padrao_data.findall(linha)
-        if datas:
-            data_original = datas[0]
-            try:
-                nascimento = datetime.strptime(data_original, "%d/%m/%Y") if "/" in data_original else datetime.strptime(data_original, "%Y-%m-%d")
-                data_formatada = nascimento.strftime("%d/%m/%Y")
-                idade = calcular_idade(nascimento)
-                linha = linha.replace(f"'{data_original}'", f"'{data_formatada}'")
-                linha = re.sub(r"NULL\);", f"{idade});", linha)
-            except:
-                pass
-        atualizadas.append(linha)
-    return atualizadas
+        linhas_formatadas.append(bloco)
+    return linhas_formatadas
 
 def aplicar_filtros(linhas, nome_filtro, sexo_filtro, idade_min, idade_max):
     filtradas = []
     for linha in linhas:
-        partes = re.findall(r"'([^']*)'|(\d+)", linha)
-        if not partes or len(partes) < 5:
-            continue
-        nome, cpf, nascimento, sexo, idade = [p[0] if p[0] else p[1] for p in partes]
+        nome, cpf, nascimento, sexo, idade = linha.split('\n')[:5]
+        nome = nome.split(': ')[1]
+        idade = int(idade.split(': ')[1].strip()) if idade else None
         if nome_filtro and nome_filtro not in nome:
             continue
-        if sexo_filtro and sexo != sexo_filtro:
+        if sexo_filtro and sexo_filtro not in sexo:
             continue
-        try:
-            idade = int(idade)
-            if idade_min and idade < idade_min:
-                continue
-            if idade_max and idade > idade_max:
-                continue
-        except ValueError:
+        if idade_min and idade and idade < idade_min:
+            continue
+        if idade_max and idade and idade > idade_max:
             continue
         filtradas.append(linha)
     return filtradas
@@ -174,9 +160,8 @@ def main():
         blocos = extrair_blocos_por_nome(conteudo)
         registros = [extrair_campos_focus(bloco) for bloco in blocos]
 
-    sql_linhas = gerar_sql_insert(registros).splitlines()
-    sql_linhas = aplicar_formatacao_data_idade(sql_linhas)
-    filtradas = aplicar_filtros(sql_linhas, args.nome.upper(), args.sexo.upper(), args.idade_min, args.idade_max)
+    linhas_formatadas = gerar_texto_formatado(registros)
+    filtradas = aplicar_filtros(linhas_formatadas, args.nome.upper(), args.sexo.upper(), args.idade_min, args.idade_max)
 
     os.makedirs("out", exist_ok=True)
     with open("out/resultados.txt", 'w', encoding='utf-8') as f:
