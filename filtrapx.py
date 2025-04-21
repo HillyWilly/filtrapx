@@ -4,13 +4,13 @@ import sys
 from datetime import datetime
 from enum import Enum
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import List, Optional, Dict
 
 import requests
 from bs4 import BeautifulSoup
-from dateutil.parser import parse as date_parse  # Mais eficiente para datas
+from dateutil.parser import parse as date_parse
 from ftfy import fix_text
-from rapidfuzz import process, fuzz  # Substitui SpellChecker por algo mais rápido
+from rapidfuzz import fuzz
 from unidecode import unidecode
 
 class FilterMode(Enum):
@@ -19,12 +19,10 @@ class FilterMode(Enum):
     STARTS_WITH = "comeca"
 
 def clean_text(text: str) -> str:
-    """Limpeza otimizada usando expressões regulares compiladas"""
     text = fix_text(unidecode(text))
     return re.sub(r'\b(sem informa[çc]ão?|nenhum|zero)\b|\W+|_', ' ', text, flags=re.IGNORECASE).strip()
 
 def extract_data(text: str) -> List[Dict]:
-    """Extrai dados usando regex compilado único"""
     pattern = re.compile(
         r'°\s*(?:RESULTADO|CPF|NOME|SEXO|NASCIMENTO):\s*([^\n]+)',
         re.IGNORECASE
@@ -52,7 +50,6 @@ def extract_data(text: str) -> List[Dict]:
     return [r for r in records + [current] if r]
 
 def calculate_age(birth_date: str) -> Optional[int]:
-    """Cálculo de idade otimizado com dateutil"""
     try:
         birth = date_parse(birth_date, dayfirst=True, yearfirst=False)
         today = datetime.now()
@@ -61,7 +58,6 @@ def calculate_age(birth_date: str) -> Optional[int]:
         return None
 
 def fetch_url(url: str) -> str:
-    """Web scraping otimizado"""
     try:
         response = requests.get(url, timeout=10)
         soup = BeautifulSoup(response.content, 'lxml')
@@ -69,9 +65,8 @@ def fetch_url(url: str) -> str:
     except Exception as e:
         raise RuntimeError(f"Erro na URL: {str(e)}")
 
-def process_input(source: str) -> List[Dict]:
-    """Processamento unificado para todos os tipos de entrada"""
-    if source.startswith('http'):
+def process_input(source: str, is_url: bool = False) -> List[Dict]:
+    if is_url:
         text = fetch_url(source)
     elif Path(source).exists():
         text = Path(source).read_text()
@@ -81,15 +76,14 @@ def process_input(source: str) -> List[Dict]:
     return extract_data(clean_text(text))
 
 def apply_filters(records: List[Dict], args) -> List[Dict]:
-    """Filtragem otimizada com RapidFuzz"""
     filtered = []
     for r in records:
         age = calculate_age(r.get('Nascimento', ''))
         
         name_match = {
-            FilterMode.EXACT: args.name.lower() == r['Nome'].lower(),
-            FilterMode.CONTAINS: args.name.lower() in r['Nome'].lower(),
-            FilterMode.STARTS_WITH: r['Nome'].lower().startswith(args.name.lower())
+            FilterMode.EXACT: fuzz.ratio(args.name.lower(), r['Nome'].lower()) == 100,
+            FilterMode.CONTAINS: fuzz.partial_ratio(args.name.lower(), r['Nome'].lower()) == 100,
+            FilterMode.STARTS_WITH: fuzz.partial_ratio(args.name.lower(), r['Nome'].lower().split()[0]) == 100
         }[args.mode]
         
         gender_ok = not args.gender or r.get('Sexo', '').upper() == args.gender.upper()
@@ -103,7 +97,8 @@ def apply_filters(records: List[Dict], args) -> List[Dict]:
 def main():
     parser = argparse.ArgumentParser(description="Filtro de Dados Otimizado")
     group = parser.add_mutually_exclusive_group()
-    group.add_argument("input", nargs="?", help="Arquivo/URL/Texto")
+    group.add_argument("input", nargs="?", help="Arquivo ou texto")
+    group.add_argument("-u", "--url", help="URL para processar")
     group.add_argument("-c", "--clip", action="store_true", help="Colar texto")
     
     parser.add_argument("-n", "--name", default="", help="Filtrar por nome")
@@ -116,8 +111,14 @@ def main():
     args = parser.parse_args()
     
     try:
-        source = sys.stdin.read() if args.clip else args.input
-        records = process_input(source or '')
+        if args.url:
+            records = process_input(args.url, is_url=True)
+        elif args.clip:
+            print("Cole o texto e pressione Ctrl+D:")
+            records = process_input(sys.stdin.read())
+        else:
+            records = process_input(args.input or '')
+        
         filtered = apply_filters(records, args)
         
         if args.print:
