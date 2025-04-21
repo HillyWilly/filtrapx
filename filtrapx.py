@@ -8,6 +8,7 @@ from spellchecker import SpellChecker
 
 spell = SpellChecker(language='pt')
 
+
 def limpar_texto_anonimo(texto):
     texto = texto.encode('latin1', errors='ignore').decode('utf-8', errors='ignore')
     texto = texto.replace('/CNPJ', '')
@@ -17,6 +18,7 @@ def limpar_texto_anonimo(texto):
         linha.strip() for linha in texto.splitlines()
         if linha.strip() and not any(p in linha.strip().lower() for p in palavras_invalidas)
     )
+
 
 def corrigir_texto(texto):
     texto = fix_text(texto)
@@ -28,6 +30,7 @@ def corrigir_texto(texto):
     ]
     return ' '.join(palavras_corrigidas).upper()
 
+
 def extrair_registros_anonimo(texto):
     registros = []
     linhas = texto.splitlines()
@@ -38,9 +41,9 @@ def extrair_registros_anonimo(texto):
                 registros.append(registro)
                 registro = {}
             registro['Nome'] = linha.split(':', 1)[-1].strip().upper()
-        elif any(k in linha.lower() for k in ['cpf:', 'cnpj:', 'cpf/cnpj']):
+        elif re.search(r'(cpf|cnpj)', linha, re.IGNORECASE):
             cpf_linha = re.sub(r'\D', '', linha.split(':', 1)[-1])
-            if cpf_linha:
+            if 11 <= len(cpf_linha) <= 14:
                 registro['CPF'] = cpf_linha
         elif 'nascimento:' in linha.lower():
             registro['Nascimento'] = linha.split(':', 1)[-1].strip()
@@ -50,8 +53,10 @@ def extrair_registros_anonimo(texto):
         registros.append(registro)
     return registros
 
+
 def detectar_formato_resultado(texto):
     return bool(re.search(r'•\s*RESULTADO\s*:', texto, flags=re.IGNORECASE))
+
 
 def extrair_resultados_com_ponto(texto):
     blocos = re.split(r'•\s*RESULTADO\s*:\s*\d+', texto, flags=re.IGNORECASE)
@@ -70,6 +75,7 @@ def extrair_resultados_com_ponto(texto):
             'Sexo': sexo.group(1).strip().upper() if sexo else 'None',
         })
     return registros
+
 
 def extrair_blocos_por_nome(texto):
     blocos = re.split(r'(?:^|\n) *[👤•]*\s*Nome[:\s]', texto, flags=re.IGNORECASE)
@@ -96,13 +102,17 @@ def extrair_campos_focus(bloco):
 
 
 def calcular_idade_str(data_str):
-    try:
-        nascimento = datetime.strptime(data_str, "%d/%m/%Y") if "/" in data_str else datetime.strptime(data_str, "%Y-%m-%d")
-        hoje = datetime.today()
-        idade = hoje.year - nascimento.year - ((hoje.month, hoje.day) < (nascimento.month, nascimento.day))
-        return idade
-    except:
-        return "Indefinida"
+    formatos = ["%d/%m/%Y", "%Y-%m-%d", "%Y/%m/%d"]
+    for fmt in formatos:
+        try:
+            nascimento = datetime.strptime(data_str, fmt)
+            hoje = datetime.today()
+            idade = hoje.year - nascimento.year - ((hoje.month, hoje.day) < (nascimento.month, nascimento.day))
+            return idade
+        except:
+            continue
+    return "Indefinida"
+
 
 def gerar_texto_formatado(registros):
     linhas_formatadas = []
@@ -132,7 +142,6 @@ def aplicar_filtros(linhas, nome_filtro, sexo_filtro, idade_min, idade_max, modo
         sexo_valor = sexo.split(': ')[1]
         idade_valor = idade.split(': ')[1].strip()
 
-        # Nome matching
         nome_valido = True
         if nome_filtro:
             if modo == "exato":
@@ -142,10 +151,8 @@ def aplicar_filtros(linhas, nome_filtro, sexo_filtro, idade_min, idade_max, modo
             elif modo == "comeca":
                 nome_valido = nome_valor.startswith(nome_filtro)
 
-        # Sexo matching
         sexo_valido = not sexo_filtro or sexo_filtro == sexo_valor
 
-        # Idade
         idade_valido = True
         if idade_valor.isdigit():
             idade_valor = int(idade_valor)
@@ -158,6 +165,7 @@ def aplicar_filtros(linhas, nome_filtro, sexo_filtro, idade_min, idade_max, modo
 
     return filtradas
 
+
 # --- Execução Principal ---
 def main():
     parser = argparse.ArgumentParser(description="Processa e filtra dados de texto.")
@@ -169,13 +177,13 @@ def main():
     parser.add_argument("-imn", "--idade_min", type=int, help="Idade mínima", default=0)
     parser.add_argument("-imx", "--idade_max", type=int, help="Idade máxima", default=150)
     parser.add_argument("-p", "--print", help="Imprimir no terminal", action="store_true")
-    
+
     args = parser.parse_args()
-    
+
     arquivos = []
-        
-        if args.termux:
-            telegram_dir = "../storage/downloads/Telegram"
+
+    if args.termux:
+        telegram_dir = "../storage/downloads/Telegram"
         if os.path.exists(telegram_dir):
             txt_files = [
                 os.path.join(telegram_dir, f)
@@ -202,7 +210,7 @@ def main():
             arquivos = [args.entrada]
     else:
         parser.error("Você deve informar um caminho de entrada ou usar a flag (-t, --termux).")
-    
+
     registros_totais = []
 
     for caminho in arquivos:
@@ -231,17 +239,16 @@ def main():
         args.modo
     )
 
-    # Salva no arquivo
     os.makedirs("out", exist_ok=True)
     with open("out/resultados.txt", 'w', encoding='utf-8') as f:
         f.writelines(l + "\n" for l in filtradas)
 
-    # Imprime no terminal se solicitado
     if args.print:
         for linha in filtradas:
             print(linha)
 
     print(f"{len(filtradas)} resultado(s) salvos em 'out/resultados.txt'.")
+
 
 if __name__ == "__main__":
     main()
