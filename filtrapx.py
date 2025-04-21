@@ -137,13 +137,14 @@ def aplicar_filtros(linhas, nome_filtro, sexo_filtro, idade_min, idade_max):
     return filtradas
 
 # --- Execução Principal ---
-def main():
+ddef main():
     parser = argparse.ArgumentParser(description="Processa e filtra dados de texto.")
     parser.add_argument("arquivo", help="Nome do arquivo de entrada")
     parser.add_argument("-n", "--nome", help="Filtrar por nome", default="")
     parser.add_argument("-s", "--sexo", help="Filtrar por sexo (M/F)", default="")
     parser.add_argument("-imn", "--idade_min", type=int, help="Idade mínima", default=0)
     parser.add_argument("-imx", "--idade_max", type=int, help="Idade máxima", default=150)
+    parser.add_argument("-p", "--print", help="Imprimir no terminal", action="store_true")
 
     args = parser.parse_args()
 
@@ -179,4 +180,4 @@ def main():
         print(f"{len(filtradas)} resultado(s) salvos em 'out/resultados.txt'.")
 
 if __name__ == "__main__":
-    main()
+    main(
