@@ -24,10 +24,10 @@ class TextProcessor:
 
 class DataExtractor:
     PATTERNS = {
-        'name': re.compile(r'(?:nome|name):\s*(.+?)(?:\n|$)', re.IGNORECASE),
-        'cpf': re.compile(r'(?:cpf|cnpj):\D*(\d{11,14})', re.IGNORECASE),
-        'birth': re.compile(r'(?:nascimento|data de nascimento):\s*([\d/-]+)', re.IGNORECASE),
-        'gender': re.compile(r'(?:sexo|gender):\s*([MF])', re.IGNORECASE)
+        'Nome': re.compile(r'(?:nome|name):\s*(.+?)(?:\n|$)', re.IGNORECASE),
+        'CPF': re.compile(r'(?:cpf|cnpj):\D*(\d{11,14})', re.IGNORECASE),
+        'Nascimento': re.compile(r'(?:nascimento|data de nascimento):\s*([\d/-]+)', re.IGNORECASE),
+        'Sexo': re.compile(r'(?:sexo|gender):\s*([MF])', re.IGNORECASE)
     }
 
     @classmethod
@@ -64,20 +64,68 @@ class FileHandler:
     ]
 
     @classmethod
+    def get_files(cls, args):
+        if args.termux:
+            telegram_dir = "../storage/downloads/Telegram"
+            if not os.path.exists(telegram_dir):
+                raise FileNotFoundError("Diretório do Telegram não encontrado")
+                
+            txt_files = [os.path.join(telegram_dir, f) 
+                       for f in os.listdir(telegram_dir) if f.endswith(".txt")]
+            
+            if not txt_files:
+                raise FileNotFoundError("Nenhum arquivo .txt encontrado no Telegram")
+                
+            return [max(txt_files, key=os.path.getmtime)]
+        
+        if os.path.isdir(args.input):
+            return [os.path.join(args.input, f) 
+                   for f in os.listdir(args.input) if f.endswith(".txt")]
+        
+        return [args.input]
+
+    @classmethod
     def process_file(cls, content):
         for fmt in cls.FORMATS:
             if fmt['detector'](content):
                 return fmt['processor'](TextProcessor.correct_text(content))
         return []
 
+    @staticmethod
+    def save_results(records, print_flag):
+        os.makedirs("out", exist_ok=True)
+        output = []
+        
+        for r in records:
+            output.append(
+                f"Nome: {r['Nome']}\n"
+                f"CPF: {r['CPF']}\n"
+                f"Nascimento: {r['Nascimento']}\n"
+                f"Sexo: {r['Sexo']}\n"
+                f"Idade: {r.get('Idade', 'Indefinida')}\n"
+                f"-----------------------\n"
+            )
+        
+        with open("out/resultados.txt", 'w', encoding='utf-8') as f:
+            f.writelines(output)
+            
+        if print_flag:
+            print(''.join(output))
+            print(f"\n{len(output)} resultado(s) encontrados.")
+
 class FilterSystem:
     @staticmethod
     def apply_filters(records, filters):
-        return [r for r in records if all([
-            FilterSystem._check_name(r['name'], filters.get('name'), filters.get('mode')),
-            FilterSystem._check_gender(r['gender'], filters.get('gender')),
-            FilterSystem._check_age(r.get('age', 0), filters.get('min_age'), filters.get('max_age'))
-        ])]
+        filtered = []
+        for r in records:
+            r['Idade'] = AgeCalculator.calculate_age(r['Nascimento'])
+            if all([
+                FilterSystem._check_name(r['Nome'], filters['name'], filters['mode']),
+                FilterSystem._check_gender(r['Sexo'], filters['gender']),
+                FilterSystem._check_age(r['Idade'], filters['min_age'], filters['max_age'])
+            ]):
+                filtered.append(r)
+        return filtered
 
     @staticmethod
     def _check_name(name, query, mode):
@@ -87,7 +135,7 @@ class FilterSystem:
             'exato': name == query,
             'contem': query in name,
             'comeca': name.startswith(query)
-        }.get(mode, True)
+        }.get(mode, False)
 
     @staticmethod
     def _check_gender(gender, target):
@@ -95,7 +143,8 @@ class FilterSystem:
 
     @staticmethod
     def _check_age(age, min_a, max_a):
-        return isinstance(age, int) and min_a <= age <= max_a
+        try: return min_a <= int(age) <= max_a
+        except: return False
 
 def main():
     parser = argparse.ArgumentParser(description="Processa e filtra dados de texto.")
@@ -109,25 +158,27 @@ def main():
     parser.add_argument("-p", "--print", action="store_true", help="Mostrar resultados no terminal")
 
     args = parser.parse_args()
-    files = FileHandler.get_files(args)
-
-    all_records = []
-    for file in files:
-        with open(file, 'r', encoding='utf-8', errors='ignore') as f:
-            all_records.extend(FileHandler.process_file(f.read()))
-
-    for record in all_records:
-        record['age'] = AgeCalculator.calculate_age(record['birth'])
-
-    filtered = FilterSystem.apply_filters(all_records, {
-        'name': args.name,
-        'gender': args.gender,
-        'min_age': args.min_age,
-        'max_age': args.max_age,
-        'mode': args.mode
-    })
-
-    FileHandler.save_results(filtered, args.print)
+    
+    try:
+        files = FileHandler.get_files(args)
+        all_records = []
+        
+        for file in files:
+            with open(file, 'r', encoding='utf-8', errors='ignore') as f:
+                all_records.extend(FileHandler.process_file(f.read()))
+        
+        filtered = FilterSystem.apply_filters(all_records, {
+            'name': args.name,
+            'gender': args.gender,
+            'min_age': args.min_age,
+            'max_age': args.max_age,
+            'mode': args.mode
+        })
+        
+        FileHandler.save_results(filtered, args.print)
+        
+    except Exception as e:
+        print(f"Erro: {str(e)}")
 
 if __name__ == "__main__":
     main()
