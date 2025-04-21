@@ -180,4 +180,4 @@ def main():
         print(f"{len(filtradas)} resultado(s) salvos em 'out/resultados.txt'.")
 
 if __name__ == "__main__":
-    main(
+    main()
