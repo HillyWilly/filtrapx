@@ -1,4 +1,3 @@
-```
 # FILTRAPX (FILTRA-PUXADA)
 
 **Processador de Dados de Bots de Busca**
@@ -131,6 +130,4 @@ Idade: 40
 ---
 
 Feito com 💻 por [@c0rr0syv3](https://github.com/c0rr0syv3)
-```
 
----
