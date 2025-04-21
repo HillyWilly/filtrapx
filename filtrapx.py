@@ -137,7 +137,7 @@ def aplicar_filtros(linhas, nome_filtro, sexo_filtro, idade_min, idade_max):
     return filtradas
 
 # --- Execução Principal ---
-ddef main():
+def main():
     parser = argparse.ArgumentParser(description="Processa e filtra dados de texto.")
     parser.add_argument("arquivo", help="Nome do arquivo de entrada")
     parser.add_argument("-n", "--nome", help="Filtrar por nome", default="")
