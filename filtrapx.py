@@ -169,5 +169,14 @@ def main():
 
     print(f"{len(filtradas)} resultado(s) salvos em 'out/resultados.txt'.")
 
+    # Aqui vem a parte da alteração para imprimir no terminal ou salvar:
+    if args.print:
+        # Imprime no terminal
+        for linha in filtradas:
+            print(linha)
+    else:
+        # Não imprime no terminal, apenas salva
+        print(f"{len(filtradas)} resultado(s) salvos em 'out/resultados.txt'.")
+
 if __name__ == "__main__":
     main()
